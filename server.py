@@ -511,6 +511,13 @@ def process_sql_file(content, target_langs):
             entry = dict_zh_to_all.get(annotation, {})
             new_val = entry.get(primary_lang, '') or entry.get('en', '') or ai_results.get(annotation, '')
 
+            # 字典值非英文时（泰文/法文/中文等），或翻译为空时，用 AI 兜底
+            has_non_en = bool(re.search(r'[^\x00-\x7F]', new_val)) if new_val else False
+            if primary_lang == 'en' and (not new_val or has_non_en):
+                ai_single = ai_results.get(annotation, '') or (ai_translate(annotation, 'en') if api_key else '')
+                if ai_single and not bool(re.search(r'[^\x00-\x7F]', ai_single)):
+                    new_val = ai_single
+
             if new_val:
                 new_val = cap_first(new_val)
                 if new_val != item_name:
