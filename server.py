@@ -475,12 +475,15 @@ def process_js_file(content, target_langs):
     return '\n'.join(result_lines), changes
 
 def process_sql_file(content, target_langs):
-    """处理 SQL 文件"""
+    """处理 SQL 文件 —— 用 annotation(中文) 查字典翻译 ItemName"""
     changes = []
     pattern = re.compile(
         r"\('(\d+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)'\)",
         re.DOTALL
     )
+
+    # 确定主目标语言（取第一个非 en 的，或第一个）
+    primary_lang = target_langs[0] if target_langs else 'en'
 
     result = []; pos = 0
     for m in pattern.finditer(content):
@@ -489,13 +492,21 @@ def process_sql_file(content, target_langs):
         item_name = fields[4]
         annotation = fields[11].strip() if len(fields) > 11 else ''
 
-        if item_name and annotation:
-            trans = translate_multi(item_name, target_langs)
-            en_obj = trans.get('en', {})
-            en_trans = en_obj.get('value', '') if isinstance(en_obj, dict) else str(en_obj)
-            if en_trans and en_trans.lower() != item_name.lower():
-                changes.append({'old': item_name, 'new': en_trans, 'annotation': annotation})
-                fields[4] = en_trans
+        if annotation:
+            # 用 annotation（中文）查字典翻译
+            entry = dict_zh_to_all.get(annotation, {})
+            new_val = entry.get(primary_lang, '') or entry.get('en', '')
+
+            if not new_val and api_key:
+                # 字典没有，AI 翻译
+                ai_result = ai_translate(annotation, primary_lang)
+                if ai_result: new_val = ai_result
+
+            if new_val:
+                new_val = cap_first(new_val)
+                if new_val != item_name:
+                    changes.append({'old': item_name, 'new': new_val, 'annotation': annotation})
+                fields[4] = new_val
 
         result.append("('" + "', '".join(fields) + "')")
         pos = m.end()
