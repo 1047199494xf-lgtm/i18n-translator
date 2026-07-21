@@ -475,7 +475,7 @@ def process_js_file(content, target_langs):
     return '\n'.join(result_lines), changes
 
 def process_sql_file(content, target_langs):
-    """处理 SQL 文件 —— 用 annotation(中文) 查字典翻译 ItemName，批量 AI"""
+    """处理 SQL 文件 —— 用 annotation(中文) 查字典翻译 ItemName，全量批量 AI"""
     changes = []
     pattern = re.compile(
         r"\('(\d+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)'\)",
@@ -483,45 +483,54 @@ def process_sql_file(content, target_langs):
     )
 
     primary_lang = target_langs[0] if target_langs else 'en'
+    is_en = (primary_lang == 'en')
 
-    # 先扫描所有行，收集 annotation
-    rows = []  # [(start, end, fields)]
-    untranslated = set()
+    # 第一遍：收集所有 annotation，判断哪些需要 AI
+    rows = []
+    need_ai = set()
     for m in pattern.finditer(content):
         fields = list(m.groups())
-        annotation = fields[11].strip() if len(fields) > 11 else ''
-        rows.append((m.start(), m.end(), fields, annotation))
-        if annotation and annotation not in dict_zh_to_all:
-            untranslated.add(annotation)
+        ann = fields[11].strip() if len(fields) > 11 else ''
+        rows.append((m.start(), m.end(), fields, ann))
 
-    # 批量 AI 翻译缺失的
+        if ann:
+            entry = dict_zh_to_all.get(ann, {})
+            val = entry.get(primary_lang, '') or entry.get('en', '')
+            # 需要 AI：字典没有，或 en 模式但值非英文
+            if not val:
+                need_ai.add(ann)
+            elif is_en and re.search(r'[^\x00-\x7F]', val):
+                need_ai.add(ann)
+
+    # 一次批量 AI
     ai_results = {}
-    if untranslated and api_key:
-        batch = ai_batch_translate(list(untranslated), [primary_lang])
+    if need_ai and api_key:
+        batch = ai_batch_translate(list(need_ai), [primary_lang])
         for zh, lang_trans in batch.items():
-            ai_results[zh] = lang_trans.get(primary_lang, '')
+            v = lang_trans.get(primary_lang, '')
+            if v and (not is_en or not re.search(r'[^\x00-\x7F]', v)):
+                ai_results[zh] = v
 
-    # 应用翻译
+    # 第二遍：应用
     result = []; pos = 0
-    for start, end, fields, annotation in rows:
+    for start, end, fields, ann in rows:
         result.append(content[pos:start])
         item_name = fields[4]
 
-        if annotation:
-            entry = dict_zh_to_all.get(annotation, {})
-            new_val = entry.get(primary_lang, '') or entry.get('en', '') or ai_results.get(annotation, '')
+        if ann:
+            entry = dict_zh_to_all.get(ann, {})
+            new_val = entry.get(primary_lang, '') or entry.get('en', '')
 
-            # 字典值非英文时（泰文/法文/中文等），或翻译为空时，用 AI 兜底
-            has_non_en = bool(re.search(r'[^\x00-\x7F]', new_val)) if new_val else False
-            if primary_lang == 'en' and (not new_val or has_non_en):
-                ai_single = ai_results.get(annotation, '') or (ai_translate(annotation, 'en') if api_key else '')
-                if ai_single and not bool(re.search(r'[^\x00-\x7F]', ai_single)):
-                    new_val = ai_single
+            # 非英文或为空 → 用 AI
+            if is_en and (not new_val or re.search(r'[^\x00-\x7F]', new_val)):
+                new_val = ai_results.get(ann, new_val)
+            elif not new_val:
+                new_val = ai_results.get(ann, '')
 
             if new_val:
                 new_val = cap_first(new_val)
                 if new_val != item_name:
-                    changes.append({'old': item_name, 'new': new_val, 'annotation': annotation})
+                    changes.append({'old': item_name, 'new': new_val, 'annotation': ann})
                 fields[4] = new_val
 
         result.append("('" + "', '".join(fields) + "')")
