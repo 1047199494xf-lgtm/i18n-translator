@@ -569,17 +569,12 @@ def translate_file():
     langs_str = request.form.get('langs', 'en')
     target_langs = [l.strip() for l in langs_str.split(',') if l.strip()]
 
-    if fname.endswith(('.js','.json','.txt')):
-        new_content, changes = process_js_file(content, target_langs)
-        file_type = 'js'
-    elif fname.endswith('.sql'):
+    if fname.endswith('.sql') or 'INSERT INTO' in content[:500]:
         new_content, changes = process_sql_file(content, target_langs)
         file_type = 'sql'
     elif fname.endswith(('.xlsx','.xls')):
-        # Excel 走专门的翻译端点
-        new_content, changes = process_js_file(content, target_langs)
-        file_type = 'xlsx'
-    else:
+        return jsonify({'error':'Excel 请通过文件翻译模式上传，或使用 /api/translate-excel'}), 400
+    elif fname.endswith(('.js','.json','.txt')) or '{' in content[:500]:
         new_content, changes = process_js_file(content, target_langs)
         file_type = 'js'
 
