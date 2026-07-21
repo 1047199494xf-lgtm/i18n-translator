@@ -159,18 +159,17 @@ def ai_review_dict(zh, lang, trans):
     if not api_key: return None
     lang_name = LANG_NAMES.get(lang, lang)
 
-    prompt = f"""Review this dictionary entry for a gas station management system.
+    prompt = f"""Check if this dictionary entry has an OBVIOUS error:
 
 Chinese: "{zh}"
-Dictionary translation ({lang_name}): "{trans}"
+Translation ({lang_name}): "{trans}"
 
-Check for these common errors:
-1. Extra words not in the original (e.g. "起始" -> "Start Time" instead of just "Start")
-2. Opposite or wrong meaning (e.g. "增加" -> "Decrease", "停用" -> "Active")
-3. Wrong industry term (e.g. "卸油" -> "Uninstall Oil" instead of "Delivery Management")
-4. Pinyin output instead of actual translation
+Check ONLY for:
+1. Extra words not in original (e.g. "起始"->"Start Time" should be "Start"; "加油卡"->"Fuel Card Management" should be "Fuel Card")
+2. Opposite meaning (e.g. "增加"->"Decrease")
+3. Pinyin instead of translation (e.g. "加油"->"jiayou")
 
-Reply ONLY: 'OK' if accurate, or 'FIX: <corrected translation>' if wrong. Optional brief reason."""
+Reply 'OK' if fine, or 'FIX: <correct>' if there's an obvious error. One line only."""
 
     try:
         resp = requests.post(
@@ -215,6 +214,7 @@ def translate_multi(text, target_langs, review=False):
                     result_obj['warning'] = True
                     result_obj['dict_value'] = trans
                     result_obj['suggestion'] = review_result['suggestion']
+                    result_obj['value'] = cap_first(review_result['suggestion'])  # 用修正值替换
                     result_obj['reason'] = review_result['reason']
 
             results[lang] = result_obj
