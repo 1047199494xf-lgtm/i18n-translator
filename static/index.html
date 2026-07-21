@@ -363,7 +363,8 @@ async function doFileTranslate(file) {
       if (isExcel) { lastResult._excel = true; lastResult._dlId = d.download_id; }
 
       document.getElementById('resultStats').innerHTML =
-        `✅ 完成: <b>${d[resultKey]}</b> 处填充 (${typeLabel}, 语言: ${langs.join(', ')})`;
+        `✅ 完成: <b>${d[resultKey]}</b> 处填充 (${typeLabel}, 语言: ${langs.join(', ')})` +
+        (d[resultKey] === 0 ? ` <br><span style="font-size:11px;color:#999">调试: type=${d.type} content预览=${(d.content||'').substring(0,80)}</span>` : '');
 
       const cl = document.getElementById('changeList');
       const list = d.details || [];
