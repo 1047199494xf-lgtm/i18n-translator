@@ -265,7 +265,7 @@ Return ONLY a JSON object: {{"1":{{"en":"...","fr":"..."}},"2":{{...}}}}"""
                     {'role': 'system', 'content': sys_prompt},
                     {'role': 'user', 'content': items_text},
                 ],
-                'temperature': 0.3, 'max_tokens': 2000,
+                'temperature': 0.3, 'max_tokens': 8000,
             },
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             timeout=60,
@@ -502,14 +502,17 @@ def process_sql_file(content, target_langs):
             elif is_en and re.search(r'[^\x00-\x7F]', val):
                 need_ai.add(ann)
 
-    # 一次批量 AI
+    # 批量 AI，每 30 个一组，确保不超 token 不遗漏
     ai_results = {}
     if need_ai and api_key:
-        batch = ai_batch_translate(list(need_ai), [primary_lang])
-        for zh, lang_trans in batch.items():
-            v = lang_trans.get(primary_lang, '')
-            if v and (not is_en or not re.search(r'[^\x00-\x7F]', v)):
-                ai_results[zh] = v
+        all_need = list(need_ai)
+        for idx in range(0, len(all_need), 30):
+            chunk = all_need[idx:idx+30]
+            batch = ai_batch_translate(chunk, [primary_lang])
+            for zh in chunk:
+                v = batch.get(zh, {}).get(primary_lang, '')
+                if v:
+                    ai_results[zh] = v
 
     # 第二遍：应用
     result = []; pos = 0
@@ -520,8 +523,6 @@ def process_sql_file(content, target_langs):
         if ann:
             entry = dict_zh_to_all.get(ann, {})
             new_val = entry.get(primary_lang, '') or entry.get('en', '')
-
-            # 非英文或为空 → 用 AI
             if is_en and (not new_val or re.search(r'[^\x00-\x7F]', new_val)):
                 new_val = ai_results.get(ann, new_val)
             elif not new_val:
