@@ -295,7 +295,7 @@ Translate the following text to {lang_name}. Output only the translation, no exp
 # ═══════════════════════════════════════
 
 def process_js_file(content, target_langs):
-    """处理 JS/JSON 文件"""
+    """处理 JS/JSON 文件 —— 批量 AI 翻译版"""
     lines = content.splitlines()
     lang_codes = frozenset({
         'zh','en','mn','ar','fr','ja','ko','ru','es','de',
@@ -306,9 +306,63 @@ def process_js_file(content, target_langs):
     obj_open = re.compile(r"""^\s*(['"]?)([\w]+)\1\s*:\s*\{""")
     lang_re = re.compile(r"""^\s*(['"]?)([\w]{2,5})\1\s*:\s*(['"])(.*?)\3""")
 
+    # 第一遍：收集所有 zh 值
+    all_zh = set()
+    indent_stack = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+        if stripped in ('}', '},'):
+            while indent_stack and indent_stack[-1][0] >= indent:
+                indent_stack.pop()
+            continue
+        zh_m = zh_re.search(line)
+        if zh_m:
+            all_zh.add(zh_m.group(2))
+        obj_m = obj_open.match(line)
+        if obj_m:
+            key_name = obj_m.group(2)
+            while indent_stack and indent_stack[-1][0] >= indent:
+                indent_stack.pop()
+            indent_stack.append((indent, key_name))
+
+    # 批量翻译所有 zh 值（优先字典，缺失的批量 AI）
+    translations = {}  # {zh: {lang: value}}
+    untranslated = set()
+    for zh_val in all_zh:
+        entry = dict_zh_to_all.get(zh_val, {})
+        if entry:
+            translations[zh_val] = {}
+            for lang in target_langs:
+                if lang in entry:
+                    translations[zh_val][lang] = cap_first(entry[lang])
+                elif 'en' in entry:
+                    translations[zh_val][lang] = cap_first(entry['en'])
+                else:
+                    untranslated.add(zh_val)
+                    break  # 这个 zh 没完整翻译
+        else:
+            untranslated.add(zh_val)
+
+    # AI 批量翻译缺失词
+    if untranslated and api_key:
+        batch_result = ai_batch_translate(list(untranslated), target_langs)
+        for zh_val, lang_trans in batch_result.items():
+            if zh_val not in translations:
+                translations[zh_val] = {}
+            for lang, val in lang_trans.items():
+                if val:
+                    translations[zh_val][lang] = cap_first(val)
+        # 补上没 AI 结果的
+        for zh_val in untranslated:
+            if zh_val not in translations:
+                translations[zh_val] = {}
+
+    # 第二遍：应用翻译
     indent_stack = []
     changes = []
-    new_lines = []  # 追加缺少的语言行
+    new_lines = []
+    seen_changes = set()  # 去重
 
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -322,17 +376,10 @@ def process_js_file(content, target_langs):
         zh_m = zh_re.search(line)
         if zh_m:
             zh_val = zh_m.group(2)
+            zh_trans = translations.get(zh_val, {})
             key_parts = [n for _, n in indent_stack if n.lower() not in lang_codes]
             full_key = '.'.join(key_parts) if key_parts else ''
 
-            # 翻译 zh 值
-            zh_trans = translate_multi(zh_val, target_langs)
-            for lang, robj in zh_trans.items():
-                trans_val = robj.get('value', '') if isinstance(robj, dict) else str(robj)
-                if trans_val and trans_val != zh_val:
-                    changes.append({'key':f'{full_key}.{lang}','old':'','new':trans_val,'annotation':zh_val})
-
-            # 查找当前块内已有语言行
             existing_langs = set()
             j = i + 1
             last_lang_j = i
@@ -347,10 +394,12 @@ def process_js_file(content, target_langs):
                     existing_langs.add(code)
                     if code in zh_trans and code != 'zh':
                         old_val = lm.group(4)
-                        new_val_obj = zh_trans[code]
-                        new_val = new_val_obj.get('value', '') if isinstance(new_val_obj, dict) else str(new_val_obj)
+                        new_val = zh_trans[code]
                         if new_val and new_val != old_val:
-                            changes.append({'key':f'{full_key}.{code}','old':old_val,'new':new_val,'annotation':zh_val})
+                            ck = f'{full_key}.{code}'
+                            if ck not in seen_changes:
+                                seen_changes.add(ck)
+                                changes.append({'key':ck,'old':old_val,'new':new_val,'annotation':zh_val})
                             quote = lm.group(3)
                             pattern = rf"""(\b{re.escape(code)}\s*:\s*{re.escape(quote)})(.*?)({re.escape(quote)})"""
                             l2 = re.sub(pattern, rf'\1{new_val}\3', l2, count=1)
@@ -358,20 +407,18 @@ def process_js_file(content, target_langs):
                     last_lang_j = j
                 j += 1
 
-            # 缺少的语言行：在最后一个语言行后追加
             missing_langs = [l for l in target_langs if l not in existing_langs and l != 'zh']
             if missing_langs:
                 indent_str = line[:len(line)-len(line.lstrip())] + '  '
                 for ml in missing_langs:
-                    raw = zh_trans.get(ml, '')
-                    val = raw.get('value', '') if isinstance(raw, dict) else str(raw)
+                    val = zh_trans.get(ml, '')
                     new_line = f"{indent_str}{ml}: '{val}',\n"
-                    if 0 <= last_lang_j < len(lines):
-                        inserts_after = last_lang_j
-                    else:
-                        inserts_after = i
+                    inserts_after = last_lang_j if 0 <= last_lang_j < len(lines) else i
                     new_lines.append((inserts_after, new_line))
-                    changes.append({'key':f'{full_key}.{ml}','old':'','new':val,'annotation':f'{zh_val} (新增)'})
+                    ck = f'{full_key}.{ml}'
+                    if ck not in seen_changes:
+                        seen_changes.add(ck)
+                        changes.append({'key':ck,'old':'','new':val,'annotation':zh_val})
 
         obj_m = obj_open.match(line)
         if obj_m:
@@ -380,7 +427,6 @@ def process_js_file(content, target_langs):
                 indent_stack.pop()
             indent_stack.append((indent, key_name))
 
-    # 插入新语言行（从后往前插，保持索引正确）
     result_lines = lines[:]
     for pos, new_line in sorted(new_lines, key=lambda x: x[0], reverse=True):
         result_lines.insert(pos + 1, new_line)
