@@ -194,8 +194,9 @@ Reply ONLY: 'OK' if accurate, or 'FIX: <corrected translation>' if wrong. Option
     except:
         return None
 
-def translate_multi(text, target_langs):
-    """多语言翻译: {lang: {value, warning?, dict_value?, suggestion?}}"""
+def translate_multi(text, target_langs, review=False):
+    """多语言翻译: {lang: {value, warning?, dict_value?, suggestion?}}
+    review=True 时启用 AI 审查（仅快速翻译模式使用）"""
     results = {}
     for lang in target_langs:
         if lang == 'zh': continue
@@ -207,13 +208,14 @@ def translate_multi(text, target_langs):
             trans = entry[lang]
             result_obj = {'value': cap_first(trans), 'source': 'dict'}
 
-            # AI 审查字典翻译是否明显错误
-            review = ai_review_dict(text, lang, trans)
+            # AI 审查（仅在快速翻译模式）
             if review:
-                result_obj['warning'] = True
-                result_obj['dict_value'] = trans
-                result_obj['suggestion'] = review['suggestion']
-                result_obj['reason'] = review['reason']
+                review_result = ai_review_dict(text, lang, trans)
+                if review_result:
+                    result_obj['warning'] = True
+                    result_obj['dict_value'] = trans
+                    result_obj['suggestion'] = review_result['suggestion']
+                    result_obj['reason'] = review_result['reason']
 
             results[lang] = result_obj
             continue
@@ -453,7 +455,7 @@ def translate_single():
     data = request.json
     text = data.get('text','')
     langs = data.get('langs',['en'])
-    results = translate_multi(text, langs)
+    results = translate_multi(text, langs, review=True)
     return jsonify({'original':text,'results':results})
 
 @app.route('/api/translate-file', methods=['POST'])
