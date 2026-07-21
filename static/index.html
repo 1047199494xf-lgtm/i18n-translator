@@ -377,10 +377,10 @@ async function doFileTranslate(file) {
       cl.classList.add('show');
       document.getElementById('srcFile').value = '';
     } else {
-      document.getElementById('resultStats').innerHTML = `❌ 错误: ${d.error || '未知错误'}`;
+      document.getElementById('resultStats').innerHTML = `❌ 错误: ${d.error || d.message || JSON.stringify(d).substring(0,200)}`;
     }
   } catch(e) {
-    document.getElementById('resultStats').innerHTML = `❌ 翻译失败: ${e.message}`;
+    document.getElementById('resultStats').innerHTML = `❌ 网络错误: ${e.message}`;
   }
   // 恢复按钮
   btn.disabled = false; spinner.classList.remove('show');
