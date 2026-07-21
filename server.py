@@ -460,7 +460,7 @@ def translate_single():
     data = request.json
     text = data.get('text','')
     langs = data.get('langs',['en'])
-    results = translate_multi(text, langs)
+    results = translate_multi(text, langs, review=True)
     return jsonify({'original':text,'results':results})
 
 @app.route('/api/translate-file', methods=['POST'])
