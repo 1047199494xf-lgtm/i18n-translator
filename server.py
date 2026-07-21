@@ -475,6 +475,10 @@ def translate_file():
     elif fname.endswith('.sql'):
         new_content, changes = process_sql_file(content, target_langs)
         file_type = 'sql'
+    elif fname.endswith(('.xlsx','.xls')):
+        # Excel 走专门的翻译端点
+        new_content, changes = process_js_file(content, target_langs)
+        file_type = 'xlsx'
     else:
         new_content, changes = process_js_file(content, target_langs)
         file_type = 'js'
@@ -484,6 +488,110 @@ def translate_file():
         'changes':len(changes),'details':changes[:100],
         'content':new_content,
     })
+
+@app.route('/api/translate-excel', methods=['POST'])
+def translate_excel():
+    if 'file' not in request.files:
+        return jsonify({'error':'No file'}), 400
+
+    f = request.files['file']
+    langs_str = request.form.get('langs', 'en')
+    target_langs = [l.strip() for l in langs_str.split(',') if l.strip()]
+
+    import uuid, shutil
+    # 备份原文件
+    tmp_id = str(uuid.uuid4())[:8]
+    in_path = os.path.join('/tmp', f'xl_in_{tmp_id}.xlsx')
+    bak_path = os.path.join('/tmp', f'xl_bak_{tmp_id}.xlsx')
+    out_path = os.path.join('/tmp', f'xl_out_{tmp_id}.xlsx')
+
+    f.save(in_path)
+    shutil.copy(in_path, bak_path)
+
+    # 读取 Excel
+    wb = openpyxl.load_workbook(in_path)
+    if in_path.endswith('.xls'):
+        # 兼容 xls 格式
+        wb.save(in_path.replace('.xls','.xlsx'))
+        wb = openpyxl.load_workbook(in_path.replace('.xls','.xlsx'))
+
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return jsonify({'error':'Empty file'}), 400
+
+    header = [str(c).strip() if c else '' for c in rows[0]]
+    zh_col = None
+    for i, h in enumerate(header):
+        if h.lower() in ('zh', '中文', 'chinese'):
+            zh_col = i
+            break
+    if zh_col is None:
+        return jsonify({'error':'No zh column found'}), 400
+
+    # 确保目标语言列存在，记录列位置
+    lang_cols = {}
+    for lang in target_langs:
+        if lang == 'zh': continue
+        col_idx = None
+        for i, h in enumerate(header):
+            if h.lower() == lang.lower():
+                col_idx = i
+                break
+        if col_idx is None:
+            # 新增列
+            col_idx = len(header)
+            header.append(lang)
+            ws.cell(row=1, column=col_idx+1, value=lang)
+        lang_cols[lang] = col_idx
+
+    changes = []
+    total_filled = 0
+    for r_idx, row in enumerate(rows[1:], start=2):
+        zh_val = str(row[zh_col]).strip() if zh_col < len(row) and row[zh_col] else ''
+        if not zh_val:
+            continue
+
+        translations = translate_multi(zh_val, target_langs)
+        for lang in target_langs:
+            if lang == 'zh': continue
+            col = lang_cols[lang]
+            existing = str(row[col]).strip() if col < len(row) and row[col] else ''
+            if existing and existing != 'None' and existing != '':
+                continue  # 不覆盖已有内容
+
+            result_obj = translations.get(lang, {})
+            trans = result_obj.get('value', '') if isinstance(result_obj, dict) else str(result_obj)
+            if trans and trans != zh_val:
+                ws.cell(row=r_idx, column=col+1, value=trans)
+                total_filled += 1
+                if total_filled <= 50:
+                    changes.append({'row':r_idx, 'zh':zh_val, 'lang':lang, 'trans':trans})
+
+    wb.save(out_path)
+
+    return jsonify({
+        'ok': True,
+        'filled': total_filled,
+        'details': changes,
+        'download_id': tmp_id,
+        'cols_filled': list(target_langs),
+    })
+
+@app.route('/api/download-excel/<dl_id>')
+def download_excel(dl_id):
+    out_path = os.path.join('/tmp', f'xl_out_{dl_id}.xlsx')
+    bak_path = os.path.join('/tmp', f'xl_bak_{dl_id}.xlsx')
+
+    type_param = request.args.get('type', 'translated')
+    path = out_path if type_param == 'translated' else bak_path
+
+    if not os.path.exists(path):
+        return jsonify({'error':'File expired'}), 404
+
+    from flask import send_file
+    fname = 'translated.xlsx' if type_param == 'translated' else 'original_backup.xlsx'
+    return send_file(path, as_attachment=True, download_name=fname)
 
 @app.route('/api/dict-stats')
 def dict_stats():

@@ -105,7 +105,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <button class="active" onclick="switchMode('quick')" id="btnQuick">✏️ 快速翻译</button>
   <button onclick="switchMode('file')" id="btnFile">📄 文件翻译</button>
   <span class="spacer"></span>
-  <span style="font-size:12px;color:#999">支持: JS / JSON / XML / SQL</span>
+  <span style="font-size:12px;color:#999">支持: JS / JSON / XML / SQL / Excel</span>
 </div>
 
 <div class="main">
@@ -138,7 +138,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <div class="icon">📁</div>
         <p>点击或拖拽文件到此处</p>
         <p class="sub">支持 .js .json .xml .txt .sql</p>
-        <input type="file" id="srcFile" accept=".js,.json,.xml,.txt,.sql" onchange="doFileTranslate(this.files[0])">
+        <input type="file" id="srcFile" accept=".js,.json,.xml,.txt,.sql,.xlsx,.xls" onchange="doFileTranslate(this.files[0])">
       </div>
     </div>
     <div class="result-bar" id="resultBar">
@@ -306,6 +306,11 @@ async function doFileTranslate(file) {
   const langs = getSelectedLangs();
   if (langs.length === 0) { alert('请先选择至少一种目标语言'); return; }
 
+  const isExcel = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls');
+  const apiUrl = isExcel ? '/api/translate-excel' : '/api/translate-file';
+  const resultKey = isExcel ? 'filled' : 'changes';
+  const typeLabel = isExcel ? 'xlsx' : (file.name.endsWith('.sql') ? 'sql' : 'js');
+
   const fd = new FormData();
   fd.append('file', file);
   fd.append('langs', langs.join(','));
@@ -314,25 +319,36 @@ async function doFileTranslate(file) {
   resultBar.classList.add('show');
   document.getElementById('resultStats').innerHTML = '<div class="spinner show"></div> 翻译中...';
 
-  const r = await fetch('/api/translate-file', {method:'POST', body:fd});
+  const r = await fetch(apiUrl, {method:'POST', body:fd});
   const d = await r.json();
 
   if (d.ok) {
     lastResult = d;
+    if (isExcel) lastResult._excel = true;
+    if (isExcel) lastResult._dlId = d.download_id;
+
     document.getElementById('resultStats').innerHTML =
-      `✅ 完成: <b>${d.changes}</b> 处修改 (${d.type}, 语言: ${langs.join(', ')})`;
-    document.getElementById('resultBar').classList.add('show');
+      `✅ 完成: <b>${d[resultKey]}</b> 处填充 (${typeLabel}, 语言: ${langs.join(', ')})`;
 
     const cl = document.getElementById('changeList');
-    cl.innerHTML = d.details.slice(0,80).map(c =>
-      `<div class="change-item">
+    const detailKey = isExcel ? 'details' : 'details';
+    const list = d[detailKey] || [];
+    cl.innerHTML = list.slice(0,80).map(c => {
+      if (isExcel) {
+        return `<div class="change-item">
+          <span class="old">行${c.row} ${esc(c.zh)}</span>
+          <span class="arrow">→</span>
+          <span class="new">[${c.lang}] ${esc(c.trans)}</span>
+        </div>`;
+      }
+      return `<div class="change-item">
         <span class="old">${esc(c.old||'(空)')}</span>
         <span class="arrow">→</span>
         <span class="new">${esc(c.new)}</span>
         <span class="ann">${esc(c.annotation||'')}</span>
-      </div>`
-    ).join('');
-    if (d.details.length > 80) cl.innerHTML += `<div style="padding:8px;color:#999;font-size:12px">... 还有 ${d.details.length-80} 处</div>`;
+      </div>`;
+    }).join('');
+    if (list.length > 80) cl.innerHTML += `<div style="padding:8px;color:#999;font-size:12px">... 还有 ${list.length-80} 处</div>`;
     cl.classList.add('show');
     document.getElementById('srcFile').value = '';
   }
@@ -344,9 +360,18 @@ function toggleChanges() {
 
 function downloadResult() {
   if (!lastResult) return;
-  const blob = new Blob([lastResult.content], {type:'text/plain'});
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = 'translated_output'; a.click();
+  if (lastResult._excel && lastResult._dlId) {
+    // Excel: 下载翻译版 + 备份
+    window.open(`/api/download-excel/${lastResult._dlId}?type=translated`, '_blank');
+    setTimeout(() => {
+      window.open(`/api/download-excel/${lastResult._dlId}?type=backup`, '_blank');
+    }, 500);
+  } else {
+    // 文本文件
+    const blob = new Blob([lastResult.content], {type:'text/plain'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'translated_output'; a.click();
+  }
 }
 
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
