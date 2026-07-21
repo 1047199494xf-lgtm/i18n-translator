@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>i18n Translator v2</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;min-height:100vh}
+.header{background:#fff;border-bottom:1px solid #e8e8e8;padding:12px 24px;display:flex;align-items:center;gap:16px}
+.header h1{font-size:18px;font-weight:600;color:#1a1a1a}
+.header .badge{font-size:11px;background:#e8f4ff;color:#1677ff;padding:2px 8px;border-radius:10px}
+.header .api-badge{font-size:11px;padding:2px 8px;border-radius:10px;cursor:pointer}
+.header .api-badge.set{background:#e6ffe6;color:#52c41a}
+.header .api-badge.unset{background:#fff2f0;color:#ff4d4f}
+.toolbar{display:flex;align-items:center;gap:10px;padding:12px 24px;background:#fff;border-bottom:1px solid #e8e8e8}
+.toolbar button{font-size:13px;padding:6px 14px;border:1px solid #d9d9d9;border-radius:6px;background:#fff;cursor:pointer;transition:all .2s}
+.toolbar button:hover{border-color:#1677ff;color:#1677ff}
+.toolbar button.active{background:#1677ff;color:#fff;border-color:#1677ff}
+.toolbar .spacer{flex:1}
+.dict-info{padding:10px 24px;background:#fff;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;gap:10px;font-size:12px}
+.dict-info .dot{width:8px;height:8px;border-radius:50%}
+.dict-info .dot.loaded{background:#52c41a}.dict-info .dot.empty{background:#ff4d4f}
+.dict-info label{cursor:pointer;color:#1677ff}
+.main{padding:20px;max-width:1200px;margin:0 auto}
+
+/* 语言选择面板 */
+.lang-panel{background:#fff;border-radius:10px;padding:16px 20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.lang-panel .title{font-size:13px;font-weight:600;color:#333;margin-bottom:10px}
+.lang-chips{display:flex;flex-wrap:wrap;gap:6px}
+.lang-chip{font-size:12px;padding:4px 12px;border:1px solid #d9d9d9;border-radius:16px;cursor:pointer;transition:all .2s;user-select:none;background:#fff}
+.lang-chip:hover{border-color:#1677ff}
+.lang-chip.on{background:#1677ff;color:#fff;border-color:#1677ff}
+.lang-chip.zh{background:#e6f7ff;color:#1677ff;border-color:#91d5ff;cursor:default}
+
+/* 翻译卡片 */
+.trans-card{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.06);overflow:hidden}
+.trans-body{display:flex;min-height:280px}
+.trans-input-area{flex:1;padding:20px;display:flex;flex-direction:column}
+.trans-input-area textarea{flex:1;border:none;outline:none;resize:none;font-size:16px;line-height:1.6;color:#262626;font-family:inherit;width:100%}
+.trans-input-area textarea::placeholder{color:#bfbfbf}
+.trans-results{flex:1;padding:20px;border-left:1px solid #f0f0f0;overflow-y:auto;max-height:500px}
+.trans-results .no-result{color:#bfbfbf;font-size:14px;padding:40px 0;text-align:center}
+.result-lang{margin-bottom:14px}
+.result-lang .lang-label{font-size:11px;color:#999;margin-bottom:4px;text-transform:uppercase}
+.result-lang .lang-val{font-size:16px;color:#1677ff;word-break:break-word}
+.trans-footer{padding:12px 20px;border-top:1px solid #f0f0f0;display:flex;align-items:center;gap:10px}
+.trans-footer button{font-size:14px;padding:8px 20px;background:#1677ff;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:500}
+.trans-footer button:hover{background:#4096ff}
+.trans-footer button:disabled{background:#d9d9d9;cursor:not-allowed}
+.spinner{display:none;width:18px;height:18px;border:2px solid #e8e8e8;border-top-color:#1677ff;border-radius:50%;animation:spin .6s linear infinite}
+.spinner.show{display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 文件区 */
+.file-area{display:none}
+.file-area.show{display:block}
+.file-drop{border:2px dashed #d9d9d9;border-radius:12px;padding:40px;text-align:center;cursor:pointer;transition:all .2s;background:#fff}
+.file-drop:hover,.file-drop.drag{border-color:#1677ff;background:#f0f5ff}
+.file-drop .icon{font-size:40px;margin-bottom:8px}
+.file-drop p{font-size:14px;color:#999}
+.file-drop .sub{font-size:12px;color:#bbb;margin-top:4px}
+.result-bar{display:none;padding:14px 20px;border-top:1px solid #f0f0f0;background:#fafafa}
+.result-bar.show{display:flex;align-items:center;gap:12px}
+.result-bar .stats{font-size:13px;color:#666}
+.result-bar .stats b{color:#1677ff}
+.result-bar button{font-size:12px;padding:6px 12px;border:1px solid #d9d9d9;border-radius:6px;background:#fff;cursor:pointer}
+.result-bar button:hover{border-color:#1677ff;color:#1677ff}
+.change-list{max-height:350px;overflow-y:auto;padding:14px 20px;display:none}
+.change-list.show{display:block}
+.change-item{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f5f5f5;font-size:12px}
+.change-item .old{color:#ff4d4f;text-decoration:line-through;min-width:100px}
+.change-item .arrow{color:#999}
+.change-item .new{color:#52c41a;font-weight:500}
+.change-item .ann{color:#999;font-size:11px;margin-left:auto;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 弹窗 */
+.modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.3);z-index:100;align-items:center;justify-content:center}
+.modal.show{display:flex}
+.modal-box{background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw}
+.modal-box h3{margin-bottom:14px;font-size:16px}
+.modal-box input{width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;margin-bottom:10px}
+.modal-box .btn-row{display:flex;gap:8px;justify-content:flex-end}
+.modal-box button{padding:8px 18px;background:#1677ff;color:#fff;border:none;border-radius:6px;cursor:pointer}
+.modal-box .btn-cancel{background:#fff;color:#666;border:1px solid #d9d9d9}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🌐 i18n Translator</h1>
+  <span class="badge">v2.0</span>
+  <span class="api-badge unset" id="apiBadge" onclick="toggleApiModal()">API: 未设置</span>
+</div>
+
+<div class="dict-info">
+  <div class="dot empty" id="dictDot"></div>
+  <span id="dictLabel">未加载字典</span>
+  <span style="flex:1"></span>
+  <label for="dictFile">📂 导入字典</label>
+  <input type="file" id="dictFile" accept=".xlsx,.xls" onchange="loadDict()" style="display:none">
+</div>
+
+<div class="toolbar">
+  <button class="active" onclick="switchMode('quick')" id="btnQuick">✏️ 快速翻译</button>
+  <button onclick="switchMode('file')" id="btnFile">📄 文件翻译</button>
+  <span class="spacer"></span>
+  <span style="font-size:12px;color:#999">支持: JS / JSON / XML / SQL</span>
+</div>
+
+<div class="main">
+  <!-- 语言选择 -->
+  <div class="lang-panel">
+    <div class="title">选择目标语言（可多选）</div>
+    <div class="lang-chips" id="langChips"></div>
+  </div>
+
+  <!-- 快速翻译 -->
+  <div class="trans-card" id="quickPanel">
+    <div class="trans-body">
+      <div class="trans-input-area">
+        <textarea id="quickInput" placeholder="输入要翻译的文字...&#10;&#10;支持中文、英文、法文等任何语言"></textarea>
+      </div>
+      <div class="trans-results" id="quickResults">
+        <div class="no-result">选择目标语言后自动翻译</div>
+      </div>
+    </div>
+    <div class="trans-footer">
+      <button id="quickBtn" onclick="doQuickTranslate()">翻译</button>
+      <div class="spinner" id="quickSpinner"></div>
+    </div>
+  </div>
+
+  <!-- 文件翻译 -->
+  <div class="trans-card" id="filePanel" style="display:none">
+    <div class="file-area show">
+      <div class="file-drop" id="fileDrop" onclick="document.getElementById('srcFile').click()">
+        <div class="icon">📁</div>
+        <p>点击或拖拽文件到此处</p>
+        <p class="sub">支持 .js .json .xml .txt .sql</p>
+        <input type="file" id="srcFile" accept=".js,.json,.xml,.txt,.sql" onchange="doFileTranslate(this.files[0])">
+      </div>
+    </div>
+    <div class="result-bar" id="resultBar">
+      <span class="stats" id="resultStats"></span>
+      <span style="flex:1"></span>
+      <button onclick="toggleChanges()">📋 查看修改</button>
+      <button onclick="downloadResult()">💾 下载</button>
+    </div>
+    <div class="change-list" id="changeList"></div>
+  </div>
+</div>
+
+<!-- API弹窗 -->
+<div class="modal" id="apiModal">
+  <div class="modal-box">
+    <h3>🔑 设置 DeepSeek API</h3>
+    <input type="text" id="apiKeyInput" placeholder="API Key (sk-...)">
+    <input type="text" id="apiBaseInput" value="https://api.deepseek.com">
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="toggleApiModal()">取消</button>
+      <button onclick="saveApiKey()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════ 语言列表 ═══════════
+const LANG_LIST = [
+  {code:'en',name:'English 🇬🇧'},
+  {code:'fr',name:'Français 🇫🇷'},
+  {code:'ar',name:'العربية 🇸🇦'},
+  {code:'mn',name:'Монгол 🇲🇳'},
+  {code:'ja',name:'日本語 🇯🇵'},
+  {code:'ko',name:'한국어 🇰🇷'},
+  {code:'ru',name:'Русский 🇷🇺'},
+  {code:'es',name:'Español 🇪🇸'},
+  {code:'de',name:'Deutsch 🇩🇪'},
+  {code:'pt',name:'Português 🇧🇷'},
+  {code:'it',name:'Italiano 🇮🇹'},
+  {code:'th',name:'ไทย 🇹🇭'},
+  {code:'vi',name:'Tiếng Việt 🇻🇳'},
+  {code:'tr',name:'Türkçe 🇹🇷'},
+];
+
+let lastResult = null;
+let currentMode = 'quick';
+let selectedLangs = new Set();
+
+// ═══════════ 初始化 ═══════════
+function initLangChips() {
+  const container = document.getElementById('langChips');
+  LANG_LIST.forEach(l => {
+    const chip = document.createElement('span');
+    chip.className = 'lang-chip';
+    chip.textContent = l.name;
+    chip.dataset.code = l.code;
+    chip.onclick = () => toggleLang(l.code, chip);
+    container.appendChild(chip);
+  });
+  // 默认选 en
+  toggleLang('en', container.querySelector('[data-code="en"]'));
+}
+initLangChips();
+
+function toggleLang(code, chip) {
+  if (selectedLangs.has(code)) {
+    selectedLangs.delete(code);
+    chip.classList.remove('on');
+  } else {
+    selectedLangs.add(code);
+    chip.classList.add('on');
+  }
+  // 自动触发翻译
+  if (currentMode === 'quick') doQuickTranslate();
+}
+
+function getSelectedLangs() {
+  return [...selectedLangs];
+}
+
+// ═══════════ 模式切换 ═══════════
+function switchMode(mode) {
+  currentMode = mode;
+  document.getElementById('quickPanel').style.display = mode === 'quick' ? '' : 'none';
+  document.getElementById('filePanel').style.display = mode === 'file' ? '' : 'none';
+  document.getElementById('btnQuick').classList.toggle('active', mode === 'quick');
+  document.getElementById('btnFile').classList.toggle('active', mode === 'file');
+}
+
+// ═══════════ 字典 ═══════════
+async function loadDict() {
+  const f = document.getElementById('dictFile').files[0];
+  if (!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/api/load-dict', {method:'POST', body:fd});
+  const d = await r.json();
+  if (d.ok) {
+    document.getElementById('dictDot').className = 'dot loaded';
+    document.getElementById('dictLabel').textContent =
+      `字典已加载: ${d.count} 条 (${d.unique_zh} 个中文词)`;
+  }
+}
+
+// ═══════════ 快速翻译 ═══════════
+let quickTimer = null;
+document.getElementById('quickInput').addEventListener('input', function() {
+  clearTimeout(quickTimer);
+  if (getSelectedLangs().length > 0) {
+    quickTimer = setTimeout(doQuickTranslate, 400);
+  }
+});
+
+async function doQuickTranslate() {
+  const text = document.getElementById('quickInput').value.trim();
+  const langs = getSelectedLangs();
+  const resultsDiv = document.getElementById('quickResults');
+
+  if (!text) { resultsDiv.innerHTML = '<div class="no-result">选择目标语言后自动翻译</div>'; return; }
+  if (langs.length === 0) { resultsDiv.innerHTML = '<div class="no-result">请选择至少一种目标语言</div>'; return; }
+
+  document.getElementById('quickSpinner').classList.add('show');
+  const r = await fetch('/api/translate-text', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text, langs})
+  });
+  const d = await r.json();
+
+  // 只显示选了语言的翻译
+  let html = '';
+  langs.forEach(lang => {
+    let result = d.results[lang];
+    let val, warning = false, dictVal = '', suggestion = '';
+
+    if (typeof result === 'object' && result !== null) {
+      val = result.value || text;
+      warning = result.warning;
+      dictVal = result.dict_value || '';
+      suggestion = result.suggestion || '';
+    } else if (typeof result === 'string') {
+      val = result;
+    } else {
+      val = text;
+    }
+
+    const langName = LANG_LIST.find(ll => ll.code === lang)?.name || lang;
+    html += `<div class="result-lang">
+      <div class="lang-label">${langName}</div>
+      <div class="lang-val">${esc(val)}</div>`;
+
+    if (warning) {
+      html += `<div style="margin-top:6px;padding:6px 8px;background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;font-size:11px;color:#ad6800">
+        ⚠️ 字典可能错误: "${esc(dictVal)}" → 建议: <b>${esc(suggestion)}</b>
+      </div>`;
+    }
+
+    html += `</div>`;
+  });
+  resultsDiv.innerHTML = html;
+  document.getElementById('quickSpinner').classList.remove('show');
+}
+
+// ═══════════ 文件翻译 ═══════════
+async function doFileTranslate(file) {
+  if (!file) return;
+  const langs = getSelectedLangs();
+  if (langs.length === 0) { alert('请先选择至少一种目标语言'); return; }
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('langs', langs.join(','));
+
+  const resultBar = document.getElementById('resultBar');
+  resultBar.classList.add('show');
+  document.getElementById('resultStats').innerHTML = '<div class="spinner show"></div> 翻译中...';
+
+  const r = await fetch('/api/translate-file', {method:'POST', body:fd});
+  const d = await r.json();
+
+  if (d.ok) {
+    lastResult = d;
+    document.getElementById('resultStats').innerHTML =
+      `✅ 完成: <b>${d.changes}</b> 处修改 (${d.type}, 语言: ${langs.join(', ')})`;
+    document.getElementById('resultBar').classList.add('show');
+
+    const cl = document.getElementById('changeList');
+    cl.innerHTML = d.details.slice(0,80).map(c =>
+      `<div class="change-item">
+        <span class="old">${esc(c.old||'(空)')}</span>
+        <span class="arrow">→</span>
+        <span class="new">${esc(c.new)}</span>
+        <span class="ann">${esc(c.annotation||'')}</span>
+      </div>`
+    ).join('');
+    if (d.details.length > 80) cl.innerHTML += `<div style="padding:8px;color:#999;font-size:12px">... 还有 ${d.details.length-80} 处</div>`;
+    cl.classList.add('show');
+    document.getElementById('srcFile').value = '';
+  }
+}
+
+function toggleChanges() {
+  document.getElementById('changeList').classList.toggle('show');
+}
+
+function downloadResult() {
+  if (!lastResult) return;
+  const blob = new Blob([lastResult.content], {type:'text/plain'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'translated_output'; a.click();
+}
+
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ═══════════ API Key ═══════════
+async function initApiKey() {
+  const r = await fetch('/api/get-key');
+  const d = await r.json();
+  if (d.has_key) {
+    document.getElementById('apiBadge').textContent = `API: ${d.key}`;
+    document.getElementById('apiBadge').className = 'api-badge set';
+    document.getElementById('apiBaseInput').value = d.base;
+  }
+}
+initApiKey();
+
+function toggleApiModal() {
+  document.getElementById('apiModal').classList.toggle('show');
+}
+
+async function saveApiKey() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  const base = document.getElementById('apiBaseInput').value.trim() || 'https://api.deepseek.com';
+  await fetch('/api/set-key', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({key, base})
+  });
+  document.getElementById('apiBadge').textContent = key ? 'API: 已设置' : 'API: 未设置';
+  document.getElementById('apiBadge').className = 'api-badge ' + (key ? 'set' : 'unset');
+  toggleApiModal();
+}
+
+// ═══════════ 拖拽 ═══════════
+const drop = document.getElementById('fileDrop');
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f) doFileTranslate(f);
+});
+</script>
+</body>
+</html>
