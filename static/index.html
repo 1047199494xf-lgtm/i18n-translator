@@ -135,11 +135,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div class="trans-card" id="filePanel" style="display:none">
     <div class="file-area show">
       <div class="file-drop" id="fileDrop" onclick="document.getElementById('srcFile').click()">
-        <div class="icon">📁</div>
-        <p>点击或拖拽文件到此处</p>
-        <p class="sub">支持 .js .json .xml .txt .sql</p>
-        <input type="file" id="srcFile" accept=".js,.json,.xml,.txt,.sql,.xlsx,.xls" onchange="doFileTranslate(this.files[0])">
+        <div class="icon" id="fileIcon">📁</div>
+        <p id="fileLabel">点击或拖拽文件到此处</p>
+        <p class="sub" id="fileSub">支持 .js .json .xml .txt .sql .xlsx .xls</p>
+        <input type="file" id="srcFile" accept=".js,.json,.xml,.txt,.sql,.xlsx,.xls" onchange="onFileSelected(this.files[0])">
       </div>
+    </div>
+    <div class="trans-footer" style="padding:16px 20px;border-top:1px solid #f0f0f0" id="fileFooter">
+      <button id="fileTranslateBtn" onclick="doTranslateSelected()" disabled style="background:#d9d9d9;cursor:not-allowed">翻译</button>
+      <span id="fileInfo" style="font-size:12px;color:#999;margin-left:8px"></span>
+      <div class="spinner" id="fileSpinner"></div>
     </div>
     <div class="result-bar" id="resultBar">
       <span class="stats" id="resultStats"></span>
@@ -301,6 +306,31 @@ async function doQuickTranslate() {
 }
 
 // ═══════════ 文件翻译 ═══════════
+let pendingFile = null;
+
+function onFileSelected(file) {
+  if (!file) return;
+  pendingFile = file;
+  document.getElementById('fileIcon').textContent = '📄';
+  document.getElementById('fileLabel').textContent = file.name;
+  document.getElementById('fileSub').textContent = `${(file.size/1024).toFixed(1)} KB`;
+  const btn = document.getElementById('fileTranslateBtn');
+  btn.disabled = false;
+  btn.style.background = '#1677ff';
+  btn.style.cursor = 'pointer';
+  document.getElementById('fileInfo').textContent = '已就绪，选择语言后点击翻译';
+  // 隐藏旧结果
+  document.getElementById('resultBar').classList.remove('show');
+  document.getElementById('changeList').classList.remove('show');
+}
+
+async function doTranslateSelected() {
+  if (!pendingFile) return;
+  const langs = getSelectedLangs();
+  if (langs.length === 0) { alert('请先选择目标语言'); return; }
+  await doFileTranslate(pendingFile);
+}
+
 async function doFileTranslate(file) {
   if (!file) return;
   const langs = getSelectedLangs();
@@ -352,6 +382,9 @@ async function doFileTranslate(file) {
     cl.classList.add('show');
     document.getElementById('srcFile').value = '';
   }
+  // 恢复按钮
+  btn.disabled = false; spinner.classList.remove('show');
+  document.getElementById('fileInfo').textContent = '翻译完成';
 }
 
 function toggleChanges() {
@@ -411,8 +444,18 @@ drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
 drop.addEventListener('drop', e => {
   e.preventDefault(); drop.classList.remove('drag');
   const f = e.dataTransfer.files[0];
-  if (f) doFileTranslate(f);
+  if (f) onFileSelected(f);
 });
+
+async function doFileTranslate(file) {
+  if (!file) return;
+  const langs = getSelectedLangs();
+  if (langs.length === 0) { alert('请先选择目标语言'); return; }
+
+  const btn = document.getElementById('fileTranslateBtn');
+  const spinner = document.getElementById('fileSpinner');
+  btn.disabled = true; spinner.classList.add('show');
+  document.getElementById('fileInfo').textContent = '翻译中...';
 </script>
 </body>
 </html>
