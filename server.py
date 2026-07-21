@@ -475,12 +475,18 @@ def process_js_file(content, target_langs):
     return '\n'.join(result_lines), changes
 
 def process_sql_file(content, target_langs):
-    """处理 SQL 文件 —— 用 annotation(中文) 查字典翻译 ItemName，全量批量 AI"""
+    """处理 SQL 文件 —— 自动检测字段位置批量翻译 ItemName"""
     changes = []
-    pattern = re.compile(
-        r"\('(\d+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)'\)",
-        re.DOTALL
-    )
+
+    # 解析 INSERT 列名，定位 ItemName 和 annotation 的位置
+    col_match = re.search(r'INSERT INTO[^(]+\(([^)]+)\)\s*VALUES', content, re.IGNORECASE)
+    cols = [c.strip().strip('`').strip() for c in col_match.group(1).split(',')] if col_match else []
+    item_idx = next((i for i, c in enumerate(cols) if c.lower() in ('itemname', 'displayname')), 4)
+    ann_idx = next((i for i, c in enumerate(cols) if c.lower() == 'annotation'), len(cols)-1)
+    total_cols = len(cols)
+
+    # 通用正则：匹配任意数量带引号字段
+    pattern = re.compile(r"\('" + r"',\s*'".join([r"([^']*)" for _ in range(total_cols)]) + r"'\)", re.DOTALL)
 
     primary_lang = target_langs[0] if target_langs else 'en'
     is_en = (primary_lang == 'en')
@@ -490,7 +496,7 @@ def process_sql_file(content, target_langs):
     need_ai = set()
     for m in pattern.finditer(content):
         fields = list(m.groups())
-        ann = fields[11].strip() if len(fields) > 11 else ''
+        ann = fields[ann_idx].strip() if ann_idx < len(fields) else ''
         rows.append((m.start(), m.end(), fields, ann))
 
         if ann:
@@ -518,7 +524,7 @@ def process_sql_file(content, target_langs):
     result = []; pos = 0
     for start, end, fields, ann in rows:
         result.append(content[pos:start])
-        item_name = fields[4]
+        item_name = fields[item_idx] if item_idx < len(fields) else ''
 
         if ann:
             entry = dict_zh_to_all.get(ann, {})
@@ -532,7 +538,7 @@ def process_sql_file(content, target_langs):
                 new_val = cap_first(new_val)
                 if new_val != item_name:
                     changes.append({'old': item_name, 'new': new_val, 'annotation': ann})
-                fields[4] = new_val
+                fields[item_idx] = new_val
 
         result.append("('" + "', '".join(fields) + "')")
         pos = end
