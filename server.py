@@ -118,11 +118,6 @@ def load_dict_xlsx(filepath):
     print(f"字典: {total} 条中文, 语言列: {list(dict_lang_cols.keys())}")
     return dict_total_rows
 
-# 启动时自动加载内置字典
-BUILTIN_DICT = os.path.join(os.path.dirname(__file__), 'dict.xlsx')
-if os.path.exists(BUILTIN_DICT):
-    load_dict_xlsx(BUILTIN_DICT)
-
 def get_dict_trans(zh, lang):
     """从字典获取指定语言的翻译"""
     entry = dict_zh_to_all.get(zh, {})
