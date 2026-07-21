@@ -482,7 +482,10 @@ def process_sql_file(content, target_langs):
     col_match = re.search(r'INSERT INTO[^(]+\(([^)]+)\)\s*VALUES', content, re.IGNORECASE)
     cols = [c.strip().strip('`').strip() for c in col_match.group(1).split(',')] if col_match else []
     item_idx = next((i for i, c in enumerate(cols) if c.lower() in ('itemname', 'displayname')), 4)
-    ann_idx = next((i for i, c in enumerate(cols) if c.lower() == 'annotation'), len(cols)-1)
+    # annotation 列存在则用它，否则用 FunctionName 列（中文参考）
+    ann_idx = next((i for i, c in enumerate(cols) if c.lower() == 'annotation'), None)
+    if ann_idx is None:
+        ann_idx = next((i for i, c in enumerate(cols) if c.lower() == 'functionname'), None)
     total_cols = len(cols)
 
     # 通用正则：匹配任意数量带引号字段
@@ -496,7 +499,7 @@ def process_sql_file(content, target_langs):
     need_ai = set()
     for m in pattern.finditer(content):
         fields = list(m.groups())
-        ann = fields[ann_idx].strip() if ann_idx < len(fields) else ''
+        ann = fields[ann_idx].strip() if ann_idx is not None and ann_idx < len(fields) else ''
         rows.append((m.start(), m.end(), fields, ann))
 
         if ann:
