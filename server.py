@@ -475,32 +475,41 @@ def process_js_file(content, target_langs):
     return '\n'.join(result_lines), changes
 
 def process_sql_file(content, target_langs):
-    """处理 SQL 文件 —— 用 annotation(中文) 查字典翻译 ItemName"""
+    """处理 SQL 文件 —— 用 annotation(中文) 查字典翻译 ItemName，批量 AI"""
     changes = []
     pattern = re.compile(
         r"\('(\d+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)'\)",
         re.DOTALL
     )
 
-    # 确定主目标语言（取第一个非 en 的，或第一个）
     primary_lang = target_langs[0] if target_langs else 'en'
 
-    result = []; pos = 0
+    # 先扫描所有行，收集 annotation
+    rows = []  # [(start, end, fields)]
+    untranslated = set()
     for m in pattern.finditer(content):
-        result.append(content[pos:m.start()])
         fields = list(m.groups())
-        item_name = fields[4]
         annotation = fields[11].strip() if len(fields) > 11 else ''
+        rows.append((m.start(), m.end(), fields, annotation))
+        if annotation and annotation not in dict_zh_to_all:
+            untranslated.add(annotation)
+
+    # 批量 AI 翻译缺失的
+    ai_results = {}
+    if untranslated and api_key:
+        batch = ai_batch_translate(list(untranslated), [primary_lang])
+        for zh, lang_trans in batch.items():
+            ai_results[zh] = lang_trans.get(primary_lang, '')
+
+    # 应用翻译
+    result = []; pos = 0
+    for start, end, fields, annotation in rows:
+        result.append(content[pos:start])
+        item_name = fields[4]
 
         if annotation:
-            # 用 annotation（中文）查字典翻译
             entry = dict_zh_to_all.get(annotation, {})
-            new_val = entry.get(primary_lang, '') or entry.get('en', '')
-
-            if not new_val and api_key:
-                # 字典没有，AI 翻译
-                ai_result = ai_translate(annotation, primary_lang)
-                if ai_result: new_val = ai_result
+            new_val = entry.get(primary_lang, '') or entry.get('en', '') or ai_results.get(annotation, '')
 
             if new_val:
                 new_val = cap_first(new_val)
@@ -509,7 +518,7 @@ def process_sql_file(content, target_langs):
                 fields[4] = new_val
 
         result.append("('" + "', '".join(fields) + "')")
-        pos = m.end()
+        pos = end
     result.append(content[pos:])
     return ''.join(result), changes
 
