@@ -245,6 +245,47 @@ def translate_multi(text, target_langs, review=False):
 
     return results
 
+def ai_batch_translate(items, target_langs):
+    """批量 AI 翻译：一次 API 调用处理所有词所有语言"""
+    if not api_key or not items or not target_langs: return {}
+    result = {}
+    lang_names = ', '.join(LANG_NAMES.get(l, l) for l in target_langs)
+    items_text = '\n'.join(f'{i+1}. {zh}' for i, zh in enumerate(items))
+
+    sys_prompt = f"""You are a professional translator for gas station management systems.
+Translate these Chinese terms to {lang_names}.
+Return ONLY a JSON object: {{"1":{{"en":"...","fr":"..."}},"2":{{...}}}}"""
+
+    try:
+        resp = requests.post(
+            f'{api_base}/v1/chat/completions',
+            json={
+                'model': 'deepseek-chat',
+                'messages': [
+                    {'role': 'system', 'content': sys_prompt},
+                    {'role': 'user', 'content': items_text},
+                ],
+                'temperature': 0.3, 'max_tokens': 2000,
+            },
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            timeout=60,
+        )
+        data = resp.json()['choices'][0]['message']['content'].strip()
+        # 清理 AI 返回的 markdown 代码块
+        if data.startswith('```'): data = re.sub(r'^```\w*\n?', '', data); data = re.sub(r'\n?```$', '', data)
+        parsed = json.loads(data)
+        for i, zh in enumerate(items):
+            item_result = parsed.get(str(i+1), {})
+            if item_result:
+                result[zh] = {}
+                for lang in target_langs:
+                    if lang in item_result and item_result[lang]:
+                        result[zh][lang] = item_result[lang]
+        return result
+    except Exception as e:
+        print(f'批量AI翻译失败: {e}')
+        return {}
+
 def ai_translate(text, target_lang):
     """AI 单语言翻译"""
     if not api_key: return None
