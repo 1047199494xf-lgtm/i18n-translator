@@ -336,6 +336,11 @@ async function doFileTranslate(file) {
   const langs = getSelectedLangs();
   if (langs.length === 0) { alert('请先选择至少一种目标语言'); return; }
 
+  const btn = document.getElementById('fileTranslateBtn');
+  const spinner = document.getElementById('fileSpinner');
+  btn.disabled = true; spinner.classList.add('show');
+  document.getElementById('fileInfo').textContent = '翻译中...';
+
   const isExcel = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls');
   const apiUrl = isExcel ? '/api/translate-excel' : '/api/translate-file';
   const resultKey = isExcel ? 'filled' : 'changes';
@@ -447,15 +452,6 @@ drop.addEventListener('drop', e => {
   if (f) onFileSelected(f);
 });
 
-async function doFileTranslate(file) {
-  if (!file) return;
-  const langs = getSelectedLangs();
-  if (langs.length === 0) { alert('请先选择目标语言'); return; }
-
-  const btn = document.getElementById('fileTranslateBtn');
-  const spinner = document.getElementById('fileSpinner');
-  btn.disabled = true; spinner.classList.add('show');
-  document.getElementById('fileInfo').textContent = '翻译中...';
 </script>
 </body>
 </html>
