@@ -604,10 +604,17 @@ def translate_file():
         new_content, changes = process_js_file(content, target_langs)
         file_type = 'js'
 
+    # 结果写文件，JSON 只带摘要和下载链接
+    dl_id = os.urandom(4).hex()
+    out_path = os.path.join('/tmp', f'translated_{dl_id}.txt')
+    with open(out_path, 'w', encoding='utf-8') as wf:
+        wf.write(new_content)
+
     return jsonify({
         'ok':True,'type':file_type,
         'changes':len(changes),'details':changes[:100],
-        'content':new_content,
+        'content': new_content if len(new_content) < 50000 else '',
+        'download_id': dl_id,
     })
 
 @app.route('/api/translate-excel', methods=['POST'])
@@ -698,6 +705,14 @@ def translate_excel():
         'download_id': tmp_id,
         'cols_filled': list(target_langs),
     })
+
+@app.route('/api/download-result/<dl_id>')
+def download_result(dl_id):
+    path = os.path.join('/tmp', f'translated_{dl_id}.txt')
+    if not os.path.exists(path):
+        return jsonify({'error':'File expired'}), 404
+    from flask import send_file
+    return send_file(path, as_attachment=True, download_name='translated_output')
 
 @app.route('/api/download-excel/<dl_id>')
 def download_excel(dl_id):

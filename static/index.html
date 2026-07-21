@@ -395,16 +395,18 @@ function toggleChanges() {
 function downloadResult() {
   if (!lastResult) return;
   if (lastResult._excel && lastResult._dlId) {
-    // Excel: 下载翻译版 + 备份
     window.open(`/api/download-excel/${lastResult._dlId}?type=translated`, '_blank');
     setTimeout(() => {
       window.open(`/api/download-excel/${lastResult._dlId}?type=backup`, '_blank');
     }, 500);
-  } else {
-    // 文本文件
-    const blob = new Blob([lastResult.content], {type:'text/plain'});
+  } else if (lastResult.download_id) {
+    window.open(`/api/download-result/${lastResult.download_id}`, '_blank');
+  } else if (lastResult.content) {
+    const blob = new Blob([lastResult.content], {type:'text/plain;charset=utf-8'});
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
     a.download = 'translated_output'; a.click();
+  } else {
+    alert('下载失败：内容为空，请重新翻译');
   }
 }
 
