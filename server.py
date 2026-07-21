@@ -265,7 +265,7 @@ Return ONLY a JSON object: {{"1":{{"en":"...","fr":"..."}},"2":{{...}}}}"""
                     {'role': 'system', 'content': sys_prompt},
                     {'role': 'user', 'content': items_text},
                 ],
-                'temperature': 0.3, 'max_tokens': 50000,
+                'temperature': 0.3, 'max_tokens': 32000,
             },
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             timeout=60,
