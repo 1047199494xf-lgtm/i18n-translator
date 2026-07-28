@@ -645,12 +645,18 @@ def translate_excel():
     f.save(in_path)
     shutil.copy(in_path, bak_path)
 
-    # 读取 Excel
-    wb = openpyxl.load_workbook(in_path)
+    # 读取 Excel（兼容 .xls 老格式）
     if in_path.endswith('.xls'):
-        # 兼容 xls 格式
-        wb.save(in_path.replace('.xls','.xlsx'))
-        wb = openpyxl.load_workbook(in_path.replace('.xls','.xlsx'))
+        import xlrd
+        xl_wb = xlrd.open_workbook(in_path)
+        xl_ws = xl_wb.sheet_by_index(0)
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for r in range(xl_ws.nrows):
+            for c in range(xl_ws.ncols):
+                ws.cell(row=r+1, column=c+1, value=xl_ws.cell_value(r, c))
+    else:
+        wb = openpyxl.load_workbook(in_path)
 
     ws = wb.active
     rows = list(ws.iter_rows(values_only=True))
