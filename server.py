@@ -649,14 +649,19 @@ def translate_excel():
 
     # 读取 Excel（兼容 .xls 老格式）
     if in_path.endswith('.xls'):
-        import xlrd
-        xl_wb = xlrd.open_workbook(in_path)
-        xl_ws = xl_wb.sheet_by_index(0)
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        for r in range(xl_ws.nrows):
-            for c in range(xl_ws.ncols):
-                ws.cell(row=r+1, column=c+1, value=xl_ws.cell_value(r, c))
+        try:
+            import xlrd
+            xl_wb = xlrd.open_workbook(in_path)
+            xl_ws = xl_wb.sheet_by_index(0)
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            for r in range(xl_ws.nrows):
+                for c in range(xl_ws.ncols):
+                    ws.cell(row=r+1, column=c+1, value=xl_ws.cell_value(r, c))
+        except ImportError:
+            return jsonify({'error': '服务器未安装 xlrd 库，请联系管理员'}), 500
+        except Exception as e:
+            return jsonify({'error': f'读取 .xls 文件失败: {str(e)}'}), 500
     else:
         wb = openpyxl.load_workbook(in_path)
 
