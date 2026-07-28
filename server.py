@@ -128,10 +128,9 @@ def cap_first(t):
     return t[0].upper() + t[1:]
 
 def split_translate(text, target_lang='en'):
-    """拆词翻译：贪心最长匹配，目标语言优先"""
+    """拆词翻译：只用目标语言字典，不混其他语言"""
     if not text: return None
     lang_dict = dict_all.get(target_lang, {})
-    en_dict = dict_all.get('en', {})  # fallback
 
     result = []; i = 0
     while i < len(text):
@@ -141,11 +140,8 @@ def split_translate(text, target_lang='en'):
             if chunk in lang_dict:
                 best_val = lang_dict[chunk]; best_len = len(chunk)
                 break
-            elif chunk in en_dict:
-                best_val = en_dict[chunk]; best_len = len(chunk)
-                break
         if best_val: result.append(best_val); i += best_len
-        else: result.append(text[i]); i += 1
+        else: return None  # 有词找不到 → 不拼接，交 AI
 
     combined = ' '.join(result)
     if re.search(r'[一-鿿]', combined): return None
@@ -220,16 +216,16 @@ def translate_multi(text, target_langs, review=False):
             results[lang] = result_obj
             continue
 
-        # 2. 英文 fallback
-        if 'en' in entry and entry['en']:
-            result_obj = {'value': cap_first(entry['en']), 'source': 'dict_en'}
-            results[lang] = result_obj
-            continue
-
-        # 3. 拆词
+        # 2. 拆词（只用该语言字典）
         split_result = split_translate(text, lang)
         if split_result:
             result_obj = {'value': cap_first(split_result), 'source': 'split'}
+            results[lang] = result_obj
+            continue
+
+        # 3. 英文兜底仅限 en 模式
+        if lang == 'en' and 'en' in entry and entry['en']:
+            result_obj = {'value': cap_first(entry['en']), 'source': 'dict_en'}
             results[lang] = result_obj
             continue
 
