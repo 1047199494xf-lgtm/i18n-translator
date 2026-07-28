@@ -637,10 +637,12 @@ def translate_excel():
 
     import uuid, shutil
     # 备份原文件
-    tmp_id = str(uuid.uuid4())[:8]
-    in_path = os.path.join('/tmp', f'xl_in_{tmp_id}.xlsx')
-    bak_path = os.path.join('/tmp', f'xl_bak_{tmp_id}.xlsx')
-    out_path = os.path.join('/tmp', f'xl_out_{tmp_id}.xlsx')
+    from uuid import uuid4
+    ext = os.path.splitext(f.filename)[1] or '.xlsx'
+    tmp_id = str(uuid4())[:8]
+    in_path = os.path.join('/tmp', f'xl_in_{tmp_id}{ext}')
+    bak_path = os.path.join('/tmp', f'xl_bak_{tmp_id}{ext}')
+    out_path = os.path.join('/tmp', f'xl_out_{tmp_id}{ext}')
 
     f.save(in_path)
     shutil.copy(in_path, bak_path)
@@ -731,8 +733,12 @@ def download_result(dl_id):
 
 @app.route('/api/download-excel/<dl_id>')
 def download_excel(dl_id):
-    out_path = os.path.join('/tmp', f'xl_out_{dl_id}.xlsx')
-    bak_path = os.path.join('/tmp', f'xl_bak_{dl_id}.xlsx')
+    out_path = os.path.join('/tmp', f'xl_out_{dl_id}.xls')
+    if not os.path.exists(out_path):
+        out_path = os.path.join('/tmp', f'xl_out_{dl_id}.xlsx')
+    bak_path = os.path.join('/tmp', f'xl_bak_{dl_id}.xls')
+    if not os.path.exists(bak_path):
+        bak_path = os.path.join('/tmp', f'xl_bak_{dl_id}.xlsx')
 
     type_param = request.args.get('type', 'translated')
     path = out_path if type_param == 'translated' else bak_path
