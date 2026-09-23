@@ -14,6 +14,7 @@ dict_zh_to_all = {}     # zh → {lang: translation}
 dict_all = {}           # {lang: {zh: translation}}  每个语言独立的查找表
 dict_total_rows = 0
 dict_lang_cols = {}     # 字典里有哪些语言列: {lang_code: col_index}
+dict_short_entries = [] # [(zh, {lang: trans})] 短词条索引，供 AI 术语参考
 api_key = ''
 api_base = 'https://api.deepseek.com'
 
@@ -115,7 +116,14 @@ def load_dict_xlsx(filepath):
             total += 1
 
     dict_total_rows = total
-    print(f"字典: {total} 条中文, 语言列: {list(dict_lang_cols.keys())}")
+
+    # 构建术语参考索引（只收 2-12 字词条，长句对术语参考无意义）
+    dict_short_entries.clear()
+    for k, v in dict_zh_to_all.items():
+        if 2 <= len(k) <= 12:
+            dict_short_entries.append((k, v))
+
+    print(f"字典: {total} 条中文, 语言列: {list(dict_lang_cols.keys())}, 术语索引: {len(dict_short_entries)}")
     return dict_total_rows
 
 def get_dict_trans(zh, lang):
@@ -126,6 +134,51 @@ def get_dict_trans(zh, lang):
 def cap_first(t):
     if not t: return t
     return t[0].upper() + t[1:]
+
+def find_term_hints(zh, target_lang=None, limit=12):
+    """从字典检索与待翻译词相关的术语，供 AI 参考（保持产品术语一致）
+
+    相关性：字典词条包含输入词(输入"油机"→命中"油机状态")，或输入词包含字典词条。
+    排序：长度差小的优先（越接近输入词越相关）。
+    """
+    if not zh or not dict_short_entries:
+        return []
+    zl = len(zh)
+    cands = []
+    for k, entry in dict_short_entries:
+        kl = len(k)
+        if k == zh:
+            continue
+        if zh in k:
+            diff = kl - zl
+        elif k in zh:
+            diff = zl - kl
+        else:
+            continue
+        trans = (entry.get(target_lang) if target_lang else None) or entry.get('en') or ''
+        if not trans:
+            continue
+        cands.append((diff, -kl, k, trans))
+    if not cands:
+        return []
+    cands.sort(key=lambda x: (x[0], x[1]))
+    return [(k, t) for _, _, k, t in cands[:limit]]
+
+
+def build_hint_block(hints):
+    """把术语参考拼成给 AI 的提示段"""
+    if not hints:
+        return ''
+    lines = '\n'.join(f'  {k} → {t}' for k, t in hints)
+    return f"""
+
+TERMINOLOGY REFERENCE - official translations already used in our product:
+{lines}
+
+Stay consistent with this terminology when the same terms appear in the text.
+Treat them as a TERM-LEVEL glossary, not as phrase templates: extract what each
+individual term means (e.g. from "固定式加油机 → Stationary" you learn that 固定式
+means stationary - it does NOT mean 加油机 = stationary)."""
 
 def split_translate(text, target_lang='en'):
     """拆词翻译：只用目标语言字典，不混其他语言"""
@@ -248,9 +301,24 @@ def ai_batch_translate(items, target_langs):
     lang_names = ', '.join(LANG_NAMES.get(l, l) for l in target_langs)
     items_text = '\n'.join(f'{i+1}. {zh}' for i, zh in enumerate(items))
 
+    # 术语参考：为短词检索相关字典术语，汇总去重（控制总量，避免占满 token）
+    hint_pool = {}
+    for zh in items:
+        if not (2 <= len(zh) <= 12):
+            continue
+        for k, t in find_term_hints(zh, target_langs[0], limit=4):
+            if k not in hint_pool and k not in items:
+                hint_pool[k] = t
+            if len(hint_pool) >= 60:
+                break
+        if len(hint_pool) >= 60:
+            break
+    hint_block = build_hint_block(list(hint_pool.items()))
+
     sys_prompt = f"""You are a professional translator for gas station management systems.
 Translate these Chinese terms to {lang_names}.
-Return ONLY a JSON object: {{"1":{{"en":"...","fr":"..."}},"2":{{...}}}}"""
+Return ONLY a JSON object: {{"1":{{"en":"...","fr":"..."}},"2":{{...}}}}
+{hint_block}"""
 
     try:
         resp = requests.post(
@@ -286,6 +354,7 @@ def ai_translate(text, target_lang):
     """AI 单语言翻译"""
     if not api_key: return None
     lang_name = LANG_NAMES.get(target_lang, target_lang)
+    hint_block = build_hint_block(find_term_hints(text, target_lang))
     sys_prompt = f"""You are a professional translator specializing in gas station management systems (加油站后台管理系统).
 
 Context: This is a fuel retail management platform covering:
@@ -305,6 +374,7 @@ Translation style:
 - "充值" → Recharge/Top-up, "扣减" → Deduction, "日结" → Daily Closing
 - Preserve technical terms: PSAM, NFC, E-Account, CyberView, Fuel-In Card
 - French: use formal business French, Arabic: use standard Modern Standard Arabic, Mongolian: use Cyrillic script
+{hint_block}
 
 Translate the following text to {lang_name}. Output only the translation, no explanation, no markdown."""
 
