@@ -15,6 +15,8 @@ dict_all = {}           # {lang: {zh: translation}}  每个语言独立的查找
 dict_total_rows = 0
 dict_lang_cols = {}     # 字典里有哪些语言列: {lang_code: col_index}
 dict_short_entries = [] # [(zh, {lang: trans})] 短词条索引，供 AI 术语参考
+trans_cache = {}         # (text, lang, review) → 结果，同一词条结果稳定、不重复调 AI
+CACHE_MAX = 5000         # 缓存上限，防止无限增长
 api_key = ''
 api_base = 'https://api.deepseek.com'
 
@@ -34,6 +36,7 @@ def load_config():
 def save_config():
     with open(CONFIG_FILE, 'w') as f:
         json.dump({'key': api_key, 'base': api_base}, f)
+    trans_cache.clear()   # key 变了，旧 AI 结果作废
 
 load_config()  # 启动时加载
 
@@ -122,6 +125,8 @@ def load_dict_xlsx(filepath):
     for k, v in dict_zh_to_all.items():
         if 2 <= len(k) <= 12:
             dict_short_entries.append((k, v))
+
+    trans_cache.clear()   # 字典变了，缓存作废
 
     print(f"字典: {total} 条中文, 语言列: {list(dict_lang_cols.keys())}, 术语索引: {len(dict_short_entries)}")
     return dict_total_rows
@@ -246,8 +251,16 @@ def translate_multi(text, target_langs, review=False):
     """多语言翻译: {lang: {value, warning?, dict_value?, suggestion?}}
     review=True 时启用 AI 审查（仅快速翻译模式使用）"""
     results = {}
+    missing = []
     for lang in target_langs:
         if lang == 'zh': continue
+        ck = (text, lang, review)
+        if ck in trans_cache:
+            results[lang] = trans_cache[ck]     # 命中缓存：结果稳定、秒回
+        else:
+            missing.append(lang)
+
+    for lang in missing:
         result_obj = {'value': text}
 
         # 1. 精确匹配
@@ -292,6 +305,12 @@ def translate_multi(text, target_langs, review=False):
 
         results[lang] = result_obj
 
+    # 回填缓存（只缓存成功结果：含来源标注的；AI 失败的降级结果不缓存）
+    for lang, obj in results.items():
+        if isinstance(obj, dict) and obj.get('source') in ('dict', 'split', 'dict_en', 'ai'):
+            if len(trans_cache) < CACHE_MAX:
+                trans_cache[(text, lang, review)] = obj
+
     return results
 
 def ai_batch_translate(items, target_langs):
@@ -329,7 +348,7 @@ Return ONLY a JSON object: {{"1":{{"en":"...","fr":"..."}},"2":{{...}}}}
                     {'role': 'system', 'content': sys_prompt},
                     {'role': 'user', 'content': items_text},
                 ],
-                'temperature': 0.3, 'max_tokens': 32000,
+                'temperature': 0, 'max_tokens': 32000,
             },
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             timeout=60,
@@ -387,7 +406,7 @@ Translate the following text to {lang_name}. Output only the translation, no exp
                     {'role': 'system', 'content': sys_prompt},
                     {'role': 'user', 'content': text},
                 ],
-                'temperature': 0.3, 'max_tokens': 300,
+                'temperature': 0, 'max_tokens': 300,
             },
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             timeout=30,

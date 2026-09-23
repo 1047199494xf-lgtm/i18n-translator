@@ -249,6 +249,7 @@ async function loadDict() {
 
 // ═══════════ 快速翻译 ═══════════
 let quickTimer = null;
+let quickSeq = 0;   // 请求序号：只渲染最新一次请求的结果，防止旧请求覆盖新结果
 document.getElementById('quickInput').addEventListener('input', function() {
   clearTimeout(quickTimer);
   if (getSelectedLangs().length > 0) {
@@ -264,12 +265,14 @@ async function doQuickTranslate() {
   if (!text) { resultsDiv.innerHTML = '<div class="no-result">选择目标语言后自动翻译</div>'; return; }
   if (langs.length === 0) { resultsDiv.innerHTML = '<div class="no-result">请选择至少一种目标语言</div>'; return; }
 
+  const seq = ++quickSeq;
   document.getElementById('quickSpinner').classList.add('show');
   const r = await fetch('/api/translate-text', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({text, langs})
   });
   const d = await r.json();
+  if (seq !== quickSeq) return;   // 已有更新的请求在跑，丢弃本次过期结果
 
   // 只显示选了语言的翻译
   let html = '';
