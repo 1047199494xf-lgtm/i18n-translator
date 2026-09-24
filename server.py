@@ -97,6 +97,26 @@ def load_dict_xlsx(filepath):
 
     if zh_col is None: return 0
 
+    # 同一中文在字典里常有多行（不同 属性key），某些行的非英文列直接是英文占位或空。
+    # 原实现用 update() 无脑覆盖 → 后出现的劣质行会盖掉先出现的正确译文（如 库存 的
+    # MiniMart.Stock 有 المخزون/Үлдэгдэл，却被 message.goodsStock 的 ar=stock 覆盖）。
+    # 这里按质量择优：劣质值（空 / 该语种却写成纯拉丁文）不得覆盖优质值。
+    _LATIN_ONLY = re.compile(r'^[A-Za-z0-9\s\.,:/()#\-_%&+!?\'"@\[\]]+$')
+    _NON_LATIN_LANGS = {'ar','mn','zh','ja','ko','ru','he','th','km','lo','my','hi',
+                        'bn','ta','te','ka','hy','el','fa','ur'}
+
+    def _trans_quality(lang, val):
+        if not val: return 0                                    # 空
+        if lang not in ('zh', 'ja') and re.search(r'[\u4e00-\u9fff]', val):
+            return 1                                            # 该语言列却写着汉字 = 占位未翻译
+        if lang in _NON_LATIN_LANGS and _LATIN_ONLY.match(val):
+            return 1                                            # 该语种不该是纯拉丁文 = 英文占位
+        return 2                                                # 正常译文
+
+    def _better_trans(lang, new, old):
+        if old is None or old == '': return True
+        return _trans_quality(lang, new) >= _trans_quality(lang, old)
+
     dict_zh_to_all.clear(); dict_all.clear()
     total = 0
     for row in rows[1:]:
@@ -110,12 +130,15 @@ def load_dict_xlsx(filepath):
                 translations[lang] = val
                 if lang not in dict_all:
                     dict_all[lang] = {}
-                dict_all[lang][zh] = val
+                if _better_trans(lang, val, dict_all[lang].get(zh)):
+                    dict_all[lang][zh] = val
 
         if translations:
             if zh not in dict_zh_to_all:
                 dict_zh_to_all[zh] = {}
-            dict_zh_to_all[zh].update(translations)
+            for lang, val in translations.items():
+                if _better_trans(lang, val, dict_zh_to_all[zh].get(lang)):
+                    dict_zh_to_all[zh][lang] = val
             total += 1
 
     dict_total_rows = total
