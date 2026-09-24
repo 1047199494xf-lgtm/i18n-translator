@@ -236,17 +236,39 @@ def ai_review_dict(zh, lang, trans):
     if not api_key: return None
     lang_name = LANG_NAMES.get(lang, lang)
 
-    prompt = f"""Check if this dictionary entry has an OBVIOUS error:
+    prompt = f"""Check if this dictionary entry has an OBVIOUS error.
 
 Chinese: "{zh}"
 Translation ({lang_name}): "{trans}"
 
-Check ONLY for:
-1. Extra words not in original (e.g. "起始"->"Start Time" should be "Start"; "加油卡"->"Fuel Card Management" should be "Fuel Card")
+本产品的既定术语（以下是正确译法，用词不同但语义相同不算错，不要推翻）：
+  油机/加油机 = Dispenser = distributeur = موزع = Түгээгүүр
+  油枪 = Nozzle = pistolet = فوهة = Хошуу
+  库存 = Stock = stock = المخزون = Үлдэгдэл
+  挂失 = Suspend = suspendu = فقدان البطاقة = Түр цуцлах
+  油品 = Product = produit = المنتج = Бүтээгдэхүүн
+  会员 = Member = membre = عضو = Гишүүн
+  充值 = Recharge = recharge = إعادة الشحن = Цэнэглэх
+  交易 = Transaction = transaction = معاملة = Гүйлгээ
+  站点 = Site = site = الموقع = Станц
+  锁机 = Locked = verrouillé = تعطيل الجهاز = Түгжих
+  解灰/灰卡 = Unlock gray card = dégriser = إلغاء الترميد = Саарал карт нээх
+  油品挂牌价 = Listed price = prix affiché = السعر المعلن = Зарын үнэ
+  便利店 = Convenience Store = supérette = متجر صغير = Дэлгүүр
+  车牌号 = Plate No. = N° Véhicule = رقم اللوحة = Улсын дугаар
+  手机号 = Mobile No. = Tél. = رقم الهاتف = Утасны дугаар
+
+Check ONLY for these obvious errors:
+1. Extra words not in the original (e.g. "起始"->"Start Time" should be "Start")
 2. Opposite meaning (e.g. "增加"->"Decrease")
 3. Pinyin instead of translation (e.g. "加油"->"jiayou")
+4. Untranslated: still Chinese, or still English for a non-English target language
 
-Reply 'OK' if fine, or 'FIX: <correct>' if there's an obvious error. One line only."""
+If the translation merely uses different wording from the glossary but means the same thing, reply OK.
+
+Reply 'OK' if fine, or 'FIX: <corrected translation>' — output ONLY the corrected
+translation text itself. Never output an explanation, a comparison, or commentary.
+One line only."""
 
     try:
         resp = requests.post(
@@ -264,9 +286,19 @@ Reply 'OK' if fine, or 'FIX: <correct>' if there's an obvious error. One line on
             return None  # 没问题
         # 提取修正建议
         fix_match = re.search(r'FIX:\s*(.+?)(?:\.|$)', result)
-        if fix_match:
-            return {'warning': True, 'dict_value': trans, 'suggestion': fix_match.group(1).strip(), 'reason': result}
-        return None
+        if not fix_match:
+            return None
+        fix = fix_match.group(1).strip().strip('"\'')
+        # 守卫：AI 有时把「解释」当成译文返回（如 '"油机类型" should be "X", not "Y"'）
+        if not fix or len(fix) > len(trans) * 3 + 40:
+            return None
+        if re.search(r'\bshould be\b|\bnot\b\s+["\']|\brather than\b|\binstead of\b|\bmeans\b', fix, re.I):
+            return None
+        if fix.count('"') >= 2 or fix.count('「') >= 1 or fix.count('(') >= 2:
+            return None
+        if re.search(r'[\u4e00-\u9fff]', fix) and not re.search(r'[\u4e00-\u9fff]', trans):   # 把译文换成中文
+            return None
+        return {'warning': True, 'dict_value': trans, 'suggestion': fix, 'reason': result}
     except:
         return None
 
